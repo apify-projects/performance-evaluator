@@ -1,0 +1,38 @@
+{
+    "title": "CheerioCrawler Template",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "actorOrTaskId": {
+            "title": "Actor ID/Name or Task ID/name",
+            "type": "string",
+            "description": "ID or name of the Actor or Task to run. Tasks enable you to choose your build etc.",
+            "editor": "textfield",
+            "prefill": ""
+        },
+        "actorInput": {
+            "title": "Actor Input (JSON)",
+            "type": "object",
+            "description": "JSON object representing the input to pass to the Actor when running it.",
+            "editor": "json",
+            "prefill": {}
+        },
+        "memoryConfigs": {
+            "title": "Memory Configurations (MB)",
+            "type": "array",
+            "description": "List of memory configurations (in MB) to test the startup latency with.",
+            "editor": "select",
+            "items": {
+                "type": "string",
+                "enum": ["128", "256", "512", "1024", "2048", "4096", "8192", "16384", "32768"]
+            },
+            "default": ["512"]
+        },
+        "iterationsPerConfig": {
+            "title": "Iterations per Configuration (for statistical significance)",
+            "type": "integer",
+            "description": "Number of times to run the Actor for each memory configuration to get an average startup latency.",
+            "default": 50
+        }
+    }
+}
