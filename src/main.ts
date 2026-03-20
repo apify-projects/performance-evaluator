@@ -1,8 +1,7 @@
 import { Actor, log } from 'apify';
-import { ActorSourceType } from 'apify-client';
 import { type ActorRunRequest, Orchestrator } from 'apify-orchestrator';
-import { diff } from 'util';
-import { getAverages } from './utils';
+
+import { getAverages } from './utils.js';
 
 interface Input {
     actorOrTaskId: string;
