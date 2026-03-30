@@ -7,7 +7,6 @@ interface Input {
     actorOrTaskId: string;
     actorInput: Record<string, unknown>;
     memoryConfigs: string[];
-    bundleWithNcc: boolean;
     iterationsPerConfig: number;
 }
 
