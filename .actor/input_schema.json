@@ -17,6 +17,13 @@
             "editor": "json",
             "prefill": {}
         },
+        "buildNumber": {
+            "title": "Build Number (optional)",
+            "type": "string",
+            "description": "Specific build number to run. If not provided, the latest build will be used.",
+            "editor": "textfield",
+            "prefill": ""
+        },
         "memoryConfigs": {
             "title": "Memory Configurations (MB)",
             "type": "array",

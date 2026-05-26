@@ -6,6 +6,7 @@ import { getAverages } from './utils.js';
 interface Input {
     actorOrTaskId: string;
     actorInput: Record<string, unknown>;
+    buildNumber?: string;
     memoryConfigs: string[];
     iterationsPerConfig: number;
 }
@@ -13,7 +14,7 @@ interface Input {
 await Actor.init();
 
 // Create a new Actor using packages and importing them at start to measure startup latency
-const { actorOrTaskId, actorInput, memoryConfigs, iterationsPerConfig } = (await Actor.getInput<Input>())!;
+const { actorOrTaskId, actorInput, memoryConfigs, iterationsPerConfig, buildNumber } = (await Actor.getInput<Input>())!;
 
 // const state = await Actor.useState<{ actorId?: string, versionNumber?: string, buildNumber?: string }>()
 
@@ -38,6 +39,7 @@ for (const memoryMbs of memoryConfigs) {
         input: actorInput,
         options: {
             memory: Number(memoryMbs),
+            build: buildNumber,
         },
     }));
 
