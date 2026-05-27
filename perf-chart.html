@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Performance Evaluator - Memory vs Stage Charts</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; padding: 20px; }
+  h1 { margin-bottom: 16px; font-size: 1.5rem; }
+  h2 { margin: 32px 0 12px; font-size: 1.2rem; color: #555; }
+  .tabs { display: flex; gap: 0; margin-bottom: 0; }
+  .tab { padding: 10px 20px; cursor: pointer; background: #ddd; border: 1px solid #ccc; border-bottom: none; border-radius: 6px 6px 0 0; font-size: 0.9rem; }
+  .tab.active { background: #fff; font-weight: 600; border-bottom: 1px solid #fff; margin-bottom: -1px; z-index: 1; }
+  .tab-content { display: none; background: #fff; border: 1px solid #ccc; border-radius: 0 6px 6px 6px; padding: 20px; }
+  .tab-content.active { display: block; }
+  textarea { width: 100%; height: 300px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 13px; padding: 12px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; }
+  button { padding: 10px 24px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; margin-top: 12px; }
+  button:hover { background: #1d4ed8; }
+  .chart-container { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+  canvas { max-height: 420px; }
+  .error { color: #dc2626; margin-top: 8px; font-size: 0.9rem; }
+  .info { color: #666; font-size: 0.85rem; margin-bottom: 12px; }
+  .metric-toggle { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .metric-toggle label { display: flex; align-items: center; gap: 4px; font-size: 0.9rem; cursor: pointer; padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px; }
+  .metric-toggle input:checked + span { font-weight: 600; }
+  .view-toggle { margin: 16px 0; }
+  .view-toggle select { padding: 6px 10px; font-size: 0.9rem; border-radius: 4px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+
+<h1>Performance Evaluator Charts</h1>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('charts')">Charts</div>
+  <div class="tab" onclick="switchTab('input')">JSON Input</div>
+</div>
+
+<div id="tab-charts" class="tab-content active">
+  <div class="info">Paste JSON data in the "JSON Input" tab to render charts.</div>
+  <div class="view-toggle">
+    <label>Value type:
+      <select id="valueType" onchange="renderAllCharts()">
+        <option value="absolute">Absolute (time from Actor start)</option>
+        <option value="fromPrevious">From Previous Step</option>
+      </select>
+    </label>
+  </div>
+  <div id="charts-area"></div>
+</div>
+
+<div id="tab-input" class="tab-content">
+  <p class="info">Paste the JSON array output from the performance evaluator Actor below and click "Render Charts".</p>
+  <textarea id="json-input" placeholder='[{"eventName": "...", "memoryMbs": "1024", "median": 123, ...}, ...]'></textarea>
+  <br>
+  <button onclick="loadData()">Render Charts</button>
+  <div id="error-msg" class="error"></div>
+</div>
+
+<script>
+const COLORS = [
+  '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed',
+  '#0891b2', '#be185d', '#65a30d'
+];
+
+let currentData = null;
+let chartInstances = [];
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', (tab === 'charts' && i === 0) || (tab === 'input' && i === 1));
+  });
+  document.getElementById('tab-charts').classList.toggle('active', tab === 'charts');
+  document.getElementById('tab-input').classList.toggle('active', tab === 'input');
+}
+
+function loadData() {
+  const raw = document.getElementById('json-input').value.trim();
+  const errEl = document.getElementById('error-msg');
+  errEl.textContent = '';
+
+  if (!raw) { errEl.textContent = 'Please paste JSON data.'; return; }
+
+  try {
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data) || data.length === 0) throw new Error('Expected a non-empty JSON array.');
+    currentData = data;
+    renderAllCharts();
+    switchTab('charts');
+  } catch (e) {
+    errEl.textContent = 'Invalid JSON: ' + e.message;
+  }
+}
+
+function renderAllCharts() {
+  if (!currentData) return;
+
+  const area = document.getElementById('charts-area');
+  area.innerHTML = '';
+  chartInstances.forEach(c => c.destroy());
+  chartInstances = [];
+
+  const valueType = document.getElementById('valueType').value;
+  const isFromPrev = valueType === 'fromPrevious';
+
+  // Extract unique stages (preserve order) and memory options
+  const stageOrder = [];
+  const memorySet = new Set();
+  currentData.forEach(d => {
+    if (!stageOrder.includes(d.eventName)) stageOrder.push(d.eventName);
+    memorySet.add(String(d.memoryMbs));
+  });
+
+  // Sort memory options numerically
+  const memories = [...memorySet].sort((a, b) => Number(a) - Number(b));
+
+  // For fromPrevious, skip the first stage (no fromPrevious data)
+  const stages = isFromPrev ? stageOrder.filter((_, i) => i > 0) : stageOrder;
+
+  // Build lookup: key = `${eventName}|${memoryMbs}`
+  const lookup = {};
+  currentData.forEach(d => { lookup[`${d.eventName}|${d.memoryMbs}`] = d; });
+
+  const metrics = [
+    { key: 'median', label: 'Median', primary: true },
+    { key: 'mean', label: 'Mean', primary: false },
+    { key: 'min', label: 'Min', primary: false },
+    { key: 'max', label: 'Max', primary: false },
+  ];
+
+  metrics.forEach(metric => {
+    const fieldKey = isFromPrev ? `fromPrevious${metric.key.charAt(0).toUpperCase() + metric.key.slice(1)}` : metric.key;
+
+    // Check if data exists for this field
+    const hasData = stages.some(stage => memories.some(mem => {
+      const d = lookup[`${stage}|${mem}`];
+      return d && d[fieldKey] !== undefined;
+    }));
+    if (!hasData) return;
+
+    const heading = document.createElement('h2');
+    heading.textContent = `${metric.label}${isFromPrev ? ' (from previous step)' : ''} — ms`;
+    area.appendChild(heading);
+
+    const container = document.createElement('div');
+    container.className = 'chart-container';
+    const canvas = document.createElement('canvas');
+    container.appendChild(canvas);
+    area.appendChild(container);
+
+    const datasets = memories.map((mem, i) => ({
+      label: `${mem} MB`,
+      data: stages.map(stage => {
+        const d = lookup[`${stage}|${mem}`];
+        return d ? (d[fieldKey] ?? null) : null;
+      }),
+      borderColor: COLORS[i % COLORS.length],
+      backgroundColor: COLORS[i % COLORS.length] + '22',
+      borderWidth: metric.primary ? 3 : 2,
+      pointRadius: metric.primary ? 5 : 4,
+      pointHoverRadius: 7,
+      tension: 0.15,
+    }));
+
+    const chart = new Chart(canvas, {
+      type: 'line',
+      data: { labels: stages, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)} ms`
+            }
+          }
+        },
+        scales: {
+          y: {
+            title: { display: true, text: 'ms' },
+            ticks: { callback: v => v.toFixed(0) }
+          },
+          x: {
+            title: { display: true, text: 'Stage' },
+            ticks: { maxRotation: 45 }
+          }
+        }
+      }
+    });
+    chartInstances.push(chart);
+  });
+
+  if (area.children.length === 0) {
+    area.innerHTML = '<p class="info">No data to display for the selected view.</p>';
+  }
+}
+
+// __INJECT_DATA__ placeholder - replaced at runtime with embedded data
+</script>
+</body>
+</html>

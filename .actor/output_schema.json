@@ -7,6 +7,11 @@
             "type": "string",
             "title": "Results",
             "template": "{{links.apiDefaultDatasetUrl}}/items"
+        },
+        "chart": {
+            "type": "string",
+            "title": "Chart",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/chart"
         }
     }
 }

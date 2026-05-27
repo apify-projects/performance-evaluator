@@ -1,6 +1,7 @@
 import { Actor, log } from 'apify';
 import { type ActorRunRequest, Orchestrator } from 'apify-orchestrator';
 
+import { getChartHtml } from './chart.js';
 import { getAverages } from './utils.js';
 
 interface Input {
@@ -123,5 +124,13 @@ for (const memoryMbs of memoryConfigs) {
 
     await Actor.pushData(eventData);
 }
+
+// Load all dataset items and generate an HTML chart page
+const dataset = await Actor.openDataset();
+const { items } = await dataset.getData();
+
+const chartHtml = getChartHtml(JSON.stringify(items));
+await Actor.setValue('chart', chartHtml, { contentType: 'text/html' });
+log.info('Chart saved to key-value store as "chart"');
 
 await Actor.exit();
