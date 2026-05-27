@@ -53,8 +53,8 @@ for (const memoryMbs of memoryConfigs) {
     for (const run of runs) {
         const runLog = await Actor.apifyClient.run(run.id).log().get()
 
-        // PERF[${name}] ${numberMs} - arbitrary text after or spaces
-        const perfLogRegex = /PERF\s*\[([^\]]+)\]\D*(\d+(?:\.\d+)?)/;
+        // PERF[${name}] ${numberMs} - arbitrary text after or spaces, allow negative numbers and decimals
+        const perfLogRegex = /PERF\s*\[([^\]]+)\][^\d-]*(-?\d+(?:\.\d+)?)/;
 
         const runEvents: Record<string, number> = {};
         
