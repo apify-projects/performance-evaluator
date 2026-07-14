@@ -13,6 +13,11 @@
             "title": "All Runs",
             "template": "{{storages.datasets.allRuns.apiUrl}}/items"
         },
+        "runStats": {
+            "type": "string",
+            "title": "Run Stats",
+            "template": "{{storages.datasets.runStats.apiUrl}}/items"
+        },
         "chart": {
             "type": "string",
             "title": "Chart",
