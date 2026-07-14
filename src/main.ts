@@ -12,6 +12,19 @@ interface Input {
     iterationsPerConfig: number;
 }
 
+// Numeric fields from `run.stats` we aggregate (min/max/mean/median) into the runStats dataset.
+// `usageTotalUsd` is a top-level field on the run and is handled separately below.
+const RUN_STATS_FIELDS = [
+    'runTimeSecs',
+    'computeUnits',
+    'memAvgBytes',
+    'memMaxBytes',
+    'cpuAvgUsage',
+    'cpuMaxUsage',
+    'netRxBytes',
+    'netTxBytes',
+] as const;
+
 await Actor.init();
 
 // Create a new Actor using packages and importing them at start to measure startup latency
@@ -31,6 +44,11 @@ const orchestrator = new Orchestrator({
 
 const client = await orchestrator.apifyClient({ name: 'MY-CLIENT' });
 
+// Dataset with the raw metadata of every triggered run
+const allRunsDataset = await Actor.openDataset({ alias: 'allRuns' });
+// Dataset with aggregated (min/max/mean/median) resource-usage stats per memory config
+const runStatsDataset = await Actor.openDataset({ alias: 'runStats' });
+
 // Run each memory configuration 50 times to get mean, median, min, max startup latencies
 for (const memoryMbs of memoryConfigs) {
     log.info(`Running batch of Actors with ${memoryMbs} MB memory...`);
@@ -49,11 +67,10 @@ for (const memoryMbs of memoryConfigs) {
 
     // Wait 5 seconds to ensure all run endpoint data are up to date, then refetch runs to be safe
     await new Promise((res) => { setTimeout(res, 5000); });
-    const runs = [];
-    for (const run of Object.values(runsRecord)) {
-        const refetchedRun = await client.run(run.id).get();
-        runs.push(refetchedRun!);
-    }
+    const refetchedRuns = await Promise.all(
+        Object.values(runsRecord).map(async (run) => client.run(run.id).get()),
+    );
+    const runs = refetchedRuns.filter((run): run is NonNullable<typeof run> => !!run);
     log.info(`Batch of Actors with ${memoryMbs} MB memory finished.`);
 
     // Push important run data to a separate dataset
@@ -67,8 +84,33 @@ for (const memoryMbs of memoryConfigs) {
         usageTotalUsd: run.usageTotalUsd,
     }));
 
-    const allRunsDataset = await Actor.openDataset({ alias: 'allRuns' });
     await allRunsDataset.pushData(runsWithOnlyImportantData);
+
+    // Aggregate resource-usage stats (min/max/mean/median) across the batch for this memory config
+    const runStatsData = [...RUN_STATS_FIELDS, 'usageTotalUsd'].flatMap((statName) => {
+        const values = runs
+            .map((run) => (statName === 'usageTotalUsd'
+                ? run.usageTotalUsd
+                : (run.stats as unknown as Record<string, number | undefined>)?.[statName]))
+            .filter((v): v is number => typeof v === 'number');
+
+        if (values.length === 0) return [];
+
+        const { mean, median, min, max } = getAverages(values);
+        log.info(`Stat ${statName} memory ${memoryMbs} MB: Mean=${mean.toFixed(4)}, Median=${median.toFixed(4)}, Min=${min.toFixed(4)}, Max=${max.toFixed(4)}`);
+
+        return [{
+            statName,
+            memoryMbs,
+            min,
+            max,
+            mean,
+            median,
+            count: values.length,
+        }];
+    });
+
+    await runStatsDataset.pushData(runStatsData);
 
     const eventTimes: Record<string, number[]> = {};
     for (const run of runs) {
@@ -148,8 +190,22 @@ for (const memoryMbs of memoryConfigs) {
 // Load all dataset items and generate an HTML chart page
 const dataset = await Actor.openDataset();
 const { items } = await dataset.getData();
+const { items: runStatsItems } = await runStatsDataset.getData();
+const { items: allRunsItems } = await allRunsDataset.getData();
 
-const chartHtml = getChartHtml(JSON.stringify(items));
+// Build console links to each dataset so the source data is clear in the HTML output
+const datasetLinks = {
+    results: `https://console.apify.com/storage/datasets/${dataset.id}`,
+    allRuns: `https://console.apify.com/storage/datasets/${allRunsDataset.id}`,
+    runStats: `https://console.apify.com/storage/datasets/${runStatsDataset.id}`,
+};
+
+const chartHtml = getChartHtml({
+    eventData: items,
+    runStats: runStatsItems,
+    runs: allRunsItems,
+    links: datasetLinks,
+});
 await Actor.setValue('chart', chartHtml, { contentType: 'text/html' });
 log.info('Chart saved to key-value store as "chart"');
 

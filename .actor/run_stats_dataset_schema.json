@@ -1,0 +1,26 @@
+{
+    "$schema": "https://apify.com/schemas/v1/dataset.ide.json",
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Run stats aggregates",
+            "description": "Min / max / mean / median of resource-usage stats per memory configuration",
+            "transformation": {
+                "fields": ["statName", "memoryMbs", "min", "mean", "median", "max", "count"]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "statName": { "label": "Stat", "format": "text" },
+                    "memoryMbs": { "label": "Memory (MB)", "format": "text" },
+                    "min": { "label": "Min", "format": "number" },
+                    "mean": { "label": "Mean", "format": "number" },
+                    "median": { "label": "Median", "format": "number" },
+                    "max": { "label": "Max", "format": "number" },
+                    "count": { "label": "Runs", "format": "number" }
+                }
+            }
+        }
+    }
+}

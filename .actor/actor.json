@@ -8,14 +8,15 @@
 	"buildTag": "latest",
 	"meta": {
 		"templateId": "ts-crawlee-cheerio",
-		"generatedBy": "<FILL-IN-MODEL>"
+		"generatedBy": "Claude Code with Claude Opus 4.8"
 	},
 	"input": "./input_schema.json",
 	"output": "./output_schema.json",
 	"storages": {
 		"datasets": {
             "default": "./dataset_schema.json",
-            "allRuns": "./all_runs_dataset_schema.json"
+            "allRuns": "./all_runs_dataset_schema.json",
+            "runStats": "./run_stats_dataset_schema.json"
         }
 	},
 	"dockerfile": "../Dockerfile"

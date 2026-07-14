@@ -27,15 +27,35 @@
   .metric-toggle input:checked + span { font-weight: 600; }
   .view-toggle { margin: 16px 0; }
   .view-toggle select { padding: 6px 10px; font-size: 0.9rem; border-radius: 4px; border: 1px solid #ccc; }
+  .dataset-links { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
+  .dataset-links h3 { font-size: 0.95rem; color: #555; margin-bottom: 8px; }
+  .dataset-links ul { list-style: none; display: flex; gap: 20px; flex-wrap: wrap; }
+  .dataset-links a { color: #2563eb; text-decoration: none; font-size: 0.9rem; }
+  .dataset-links a:hover { text-decoration: underline; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  table.data-table th, table.data-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; }
+  table.data-table th { background: #f5f5f5; position: sticky; top: 0; cursor: default; }
+  table.data-table tr:hover td { background: #fafafa; }
+  table.data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.78rem; font-weight: 600; }
+  .badge.high { background: #fee2e2; color: #b91c1c; }
+  .badge.low { background: #dbeafe; color: #1d4ed8; }
 </style>
 </head>
 <body>
 
 <h1>Performance Evaluator Charts</h1>
 
+<div id="dataset-links" class="dataset-links" style="display:none;">
+  <h3>Source datasets</h3>
+  <ul id="dataset-links-list"></ul>
+</div>
+
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('charts')">Charts</div>
-  <div class="tab" onclick="switchTab('input')">JSON Input</div>
+  <div class="tab active" data-tab="charts" onclick="switchTab('charts')">Stage Charts</div>
+  <div class="tab" data-tab="runstats" onclick="switchTab('runstats')">Run Stats</div>
+  <div class="tab" data-tab="outliers" onclick="switchTab('outliers')">Outliers</div>
+  <div class="tab" data-tab="input" onclick="switchTab('input')">JSON Input</div>
 </div>
 
 <div id="tab-charts" class="tab-content active">
@@ -49,6 +69,16 @@
     </label>
   </div>
   <div id="charts-area"></div>
+</div>
+
+<div id="tab-runstats" class="tab-content">
+  <p class="info">Aggregated resource-usage stats (min / mean / median / max) per memory configuration, sourced from the <strong>runStats</strong> dataset.</p>
+  <div id="runstats-area"></div>
+</div>
+
+<div id="tab-outliers" class="tab-content">
+  <p class="info">Individual runs whose resource usage deviates significantly (|z-score| &gt; 2 within their memory configuration), sourced from the <strong>allRuns</strong> dataset.</p>
+  <div id="outliers-area"></div>
 </div>
 
 <div id="tab-input" class="tab-content">
@@ -65,15 +95,55 @@ const COLORS = [
   '#0891b2', '#be185d', '#65a30d'
 ];
 
+// Metadata describing how to label and format each aggregated run stat.
+// Order here drives the order of run-stats charts and outlier columns.
+const STAT_META = {
+  runTimeSecs:  { label: 'Run time',      unit: 's',   fmt: 'number' },
+  computeUnits: { label: 'Compute units', unit: 'CU',  fmt: 'number' },
+  memAvgBytes:  { label: 'Avg memory',    unit: 'bytes', fmt: 'bytes' },
+  memMaxBytes:  { label: 'Max memory',    unit: 'bytes', fmt: 'bytes' },
+  cpuAvgUsage:  { label: 'Avg CPU',       unit: '%',   fmt: 'percent' },
+  cpuMaxUsage:  { label: 'Max CPU',       unit: '%',   fmt: 'percent' },
+  netRxBytes:   { label: 'Network in',    unit: 'bytes', fmt: 'bytes' },
+  netTxBytes:   { label: 'Network out',   unit: 'bytes', fmt: 'bytes' },
+  usageTotalUsd:{ label: 'Total usage',   unit: 'USD', fmt: 'usd' },
+};
+
+function formatBytes(n) {
+  if (n === null || n === undefined || isNaN(n)) return '-';
+  if (Math.abs(n) < 1024) return `${n.toFixed(0)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let u = -1;
+  let v = n;
+  do { v /= 1024; u++; } while (Math.abs(v) >= 1024 && u < units.length - 1);
+  return `${v.toFixed(2)} ${units[u]}`;
+}
+
+function formatStatValue(statName, value) {
+  if (value === null || value === undefined || isNaN(value)) return '-';
+  const meta = STAT_META[statName];
+  switch (meta && meta.fmt) {
+    case 'bytes': return formatBytes(value);
+    case 'percent': return `${value.toFixed(1)}%`;
+    case 'usd': return `$${value.toFixed(4)}`;
+    default: return value.toFixed(value >= 100 ? 1 : 3);
+  }
+}
+
 let currentData = null;
 let chartInstances = [];
+let runStatsChartInstances = [];
+let runStatsData = null;
+let runsData = null;
+let datasetLinks = null;
 
 function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', (tab === 'charts' && i === 0) || (tab === 'input' && i === 1));
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.tab === tab);
   });
-  document.getElementById('tab-charts').classList.toggle('active', tab === 'charts');
-  document.getElementById('tab-input').classList.toggle('active', tab === 'input');
+  document.querySelectorAll('.tab-content').forEach((c) => {
+    c.classList.toggle('active', c.id === `tab-${tab}`);
+  });
 }
 
 function loadData() {
@@ -196,6 +266,166 @@ function renderAllCharts() {
   if (area.children.length === 0) {
     area.innerHTML = '<p class="info">No data to display for the selected view.</p>';
   }
+}
+
+function renderDatasetLinks() {
+  if (!datasetLinks) return;
+  const container = document.getElementById('dataset-links');
+  const list = document.getElementById('dataset-links-list');
+  const entries = [
+    ['Results — per-stage aggregates', datasetLinks.results],
+    ['All runs — raw run metadata', datasetLinks.allRuns],
+    ['Run stats — resource-usage aggregates', datasetLinks.runStats],
+  ];
+  list.innerHTML = entries
+    .filter(([, url]) => !!url)
+    .map(([label, url]) => `<li><a href="${url}" target="_blank" rel="noopener">${label} ↗</a></li>`)
+    .join('');
+  container.style.display = 'block';
+}
+
+function renderRunStatsCharts() {
+  const area = document.getElementById('runstats-area');
+  area.innerHTML = '';
+  runStatsChartInstances.forEach(c => c.destroy());
+  runStatsChartInstances = [];
+
+  if (!runStatsData || runStatsData.length === 0) {
+    area.innerHTML = '<p class="info">No run stats data available.</p>';
+    return;
+  }
+
+  const statOrder = Object.keys(STAT_META).filter(s => runStatsData.some(d => d.statName === s));
+  const memories = [...new Set(runStatsData.map(d => String(d.memoryMbs)))].sort((a, b) => Number(a) - Number(b));
+  const lookup = {};
+  runStatsData.forEach(d => { lookup[`${d.statName}|${d.memoryMbs}`] = d; });
+
+  const aggregates = [
+    { key: 'min', label: 'Min', color: COLORS[2] },
+    { key: 'mean', label: 'Mean', color: COLORS[0] },
+    { key: 'median', label: 'Median', color: COLORS[4] },
+    { key: 'max', label: 'Max', color: COLORS[1] },
+  ];
+
+  statOrder.forEach(statName => {
+    const meta = STAT_META[statName];
+
+    const heading = document.createElement('h2');
+    heading.textContent = `${meta.label} (${meta.unit})`;
+    area.appendChild(heading);
+
+    const container = document.createElement('div');
+    container.className = 'chart-container';
+    const canvas = document.createElement('canvas');
+    container.appendChild(canvas);
+    area.appendChild(container);
+
+    const datasets = aggregates.map(agg => ({
+      label: agg.label,
+      data: memories.map(mem => {
+        const d = lookup[`${statName}|${mem}`];
+        return d ? (d[agg.key] ?? null) : null;
+      }),
+      backgroundColor: agg.color + 'cc',
+      borderColor: agg.color,
+      borderWidth: 1,
+    }));
+
+    const chart = new Chart(canvas, {
+      type: 'bar',
+      data: { labels: memories.map(m => `${m} MB`), datasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${formatStatValue(statName, ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          y: {
+            title: { display: true, text: meta.unit },
+            ticks: { callback: v => formatStatValue(statName, v) }
+          },
+          x: { title: { display: true, text: 'Memory configuration' } }
+        }
+      }
+    });
+    runStatsChartInstances.push(chart);
+  });
+}
+
+function getRunStatValue(run, statName) {
+  if (statName === 'usageTotalUsd') return run.usageTotalUsd;
+  return run.stats ? run.stats[statName] : undefined;
+}
+
+function renderOutliersTable() {
+  const area = document.getElementById('outliers-area');
+  area.innerHTML = '';
+
+  if (!runsData || runsData.length === 0) {
+    area.innerHTML = '<p class="info">No run data available.</p>';
+    return;
+  }
+
+  const statNames = Object.keys(STAT_META);
+
+  // Group runs by memory configuration so outliers are relative to comparable runs
+  const byMem = {};
+  runsData.forEach(run => {
+    const mem = String(run.memoryMbs);
+    (byMem[mem] = byMem[mem] || []).push(run);
+  });
+
+  const outliers = [];
+  Object.entries(byMem).forEach(([mem, runs]) => {
+    statNames.forEach(statName => {
+      const vals = runs.map(r => getRunStatValue(r, statName)).filter(v => typeof v === 'number');
+      if (vals.length < 3) return;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+      if (std === 0) return;
+      runs.forEach(run => {
+        const v = getRunStatValue(run, statName);
+        if (typeof v !== 'number') return;
+        const z = (v - mean) / std;
+        if (Math.abs(z) > 2) outliers.push({ runId: run.id, memoryMbs: mem, statName, value: v, mean, z });
+      });
+    });
+  });
+
+  if (outliers.length === 0) {
+    area.innerHTML = '<p class="info">No outliers detected (no run deviates more than 2 standard deviations within its memory configuration).</p>';
+    return;
+  }
+
+  outliers.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+
+  const rows = outliers.map(o => `
+    <tr>
+      <td><a href="https://console.apify.com/actors/runs/${o.runId}" target="_blank" rel="noopener">${o.runId}</a></td>
+      <td class="num">${o.memoryMbs}</td>
+      <td>${STAT_META[o.statName].label}</td>
+      <td class="num">${formatStatValue(o.statName, o.value)}</td>
+      <td class="num">${formatStatValue(o.statName, o.mean)}</td>
+      <td class="num">${o.z > 0 ? '+' : ''}${o.z.toFixed(2)}</td>
+      <td><span class="badge ${o.z > 0 ? 'high' : 'low'}">${o.z > 0 ? 'HIGH' : 'LOW'}</span></td>
+    </tr>`).join('');
+
+  const memCount = Object.keys(byMem).length;
+  area.innerHTML = `
+    <p class="info">${outliers.length} outlier${outliers.length === 1 ? '' : 's'} found across ${memCount} memory configuration${memCount === 1 ? '' : 's'} (sorted by deviation).</p>
+    <div class="chart-container" style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
+          <tr><th>Run ID</th><th>Memory (MB)</th><th>Metric</th><th>Value</th><th>Config mean</th><th>Z-score</th><th>Direction</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // __INJECT_DATA__ placeholder - replaced at runtime with embedded data
