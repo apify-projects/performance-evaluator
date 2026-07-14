@@ -8,6 +8,11 @@
             "title": "Results",
             "template": "{{links.apiDefaultDatasetUrl}}/items"
         },
+        "allRuns": {
+            "type": "string",
+            "title": "All Runs",
+            "template": "{{storages.datasets.allRuns.apiUrl}}/items"
+        },
         "chart": {
             "type": "string",
             "title": "Chart",

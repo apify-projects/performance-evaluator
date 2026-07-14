@@ -46,9 +46,29 @@ for (const memoryMbs of memoryConfigs) {
 
     const isActor = !!(await client.actor(actorOrTaskId).get());
     const runsRecord = await client[isActor ? 'actor' : 'task'](actorOrTaskId).callRuns(...runRequests);
+
+    // Wait 5 seconds to ensure all run endpoint data are up to date, then refetch runs to be safe
+    await new Promise((res) => { setTimeout(res, 5000); });
+    const runs = [];
+    for (const run of Object.values(runsRecord)) {
+        const refetchedRun = await client.run(run.id).get();
+        runs.push(refetchedRun!);
+    }
     log.info(`Batch of Actors with ${memoryMbs} MB memory finished.`);
 
-    const runs = Object.values(runsRecord);
+    // Push important run data to a separate dataset
+    const runsWithOnlyImportantData = runs.map((run) => ({
+        id: run.id,
+        status: run.status,
+        memoryMbs: run.options.memoryMbytes,
+        buildNumber: run.options.build,
+        stats: run.stats,
+        chargedEventCounts: run.chargedEventCounts,
+        usageTotalUsd: run.usageTotalUsd,
+    }));
+
+    const allRunsDataset = await Actor.openDataset({ alias: 'allRuns' });
+    await allRunsDataset.pushData(runsWithOnlyImportantData);
 
     const eventTimes: Record<string, number[]> = {};
     for (const run of runs) {

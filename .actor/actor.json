@@ -13,7 +13,10 @@
 	"input": "./input_schema.json",
 	"output": "./output_schema.json",
 	"storages": {
-		"dataset": "./dataset_schema.json"
+		"datasets": {
+            "default": "./dataset_schema.json",
+            "allRuns": "./all_runs_dataset_schema.json"
+        }
 	},
 	"dockerfile": "../Dockerfile"
 }
