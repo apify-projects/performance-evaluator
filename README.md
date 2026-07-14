@@ -13,14 +13,14 @@ The Actor produces three datasets and one HTML report.
 ### Datasets
 
 1. **Results** (default dataset) — per-stage aggregates (min / max / mean / median) of your `PERF[...]` events for each memory configuration, plus the difference from the previous stage. This is the main output described above.
-2. **All runs** (`allRuns` dataset) — raw metadata of every triggered run: `id`, `status`, `memoryMbs`, `buildNumber`, the full `stats` object, `chargedEventCounts` and `usageTotalUsd`. This is the source data for the outliers table.
-3. **Run stats** (`runStats` dataset) — aggregated (min / max / mean / median) resource-usage statistics per memory configuration, computed across all runs of that configuration. The aggregated fields are:
-   - `runTimeSecs`
+2. **All runs** (`allRuns` dataset) — metadata of every triggered run: `id`, `status`, `memoryMbs`, `buildNumber`, a normalized `stats` object, `chargedEventCounts` and `usageTotalUsd`. This is the source data for the outliers table.
+3. **Run stats** (`runStats` dataset) — aggregated (min / max / mean / median) resource-usage statistics per memory configuration, computed across all runs of that configuration. Memory is normalized to MB and network traffic to kB (the raw Apify API reports both in bytes, which is hard to read). The aggregated fields are:
+   - `runTimeSecs` (seconds)
    - `computeUnits`
-   - `memAvgBytes`, `memMaxBytes`
-   - `cpuAvgUsage`, `cpuMaxUsage`
-   - `netRxBytes`, `netTxBytes`
-   - `usageTotalUsd`
+   - `memAvgMbytes`, `memMaxMbytes` (MB)
+   - `cpuAvgUsage`, `cpuMaxUsage` (%)
+   - `netRxKbytes`, `netTxKbytes` (kB)
+   - `usageTotalUsd` (USD)
 
    Each item has the shape `{ statName, memoryMbs, min, mean, median, max, count }`.
 

@@ -12,18 +12,54 @@ interface Input {
     iterationsPerConfig: number;
 }
 
-// Numeric fields from `run.stats` we aggregate (min/max/mean/median) into the runStats dataset.
-// `usageTotalUsd` is a top-level field on the run and is handled separately below.
-const RUN_STATS_FIELDS = [
+// Normalized, human-readable per-run performance stats. The raw Apify API reports
+// memory and network traffic in bytes, which is hard to read, so we convert memory
+// to MB and network traffic to kB. `usageTotalUsd` is a top-level field on the run.
+interface RunPerfStats {
+    runTimeSecs?: number;
+    computeUnits?: number;
+    memAvgMbytes?: number;
+    memMaxMbytes?: number;
+    cpuAvgUsage?: number;
+    cpuMaxUsage?: number;
+    netRxKbytes?: number;
+    netTxKbytes?: number;
+    usageTotalUsd?: number;
+}
+
+// Fields we aggregate (min/max/mean/median) into the runStats dataset, in display order.
+const RUN_STATS_FIELDS: (keyof RunPerfStats)[] = [
     'runTimeSecs',
     'computeUnits',
-    'memAvgBytes',
-    'memMaxBytes',
+    'memAvgMbytes',
+    'memMaxMbytes',
     'cpuAvgUsage',
     'cpuMaxUsage',
-    'netRxBytes',
-    'netTxBytes',
-] as const;
+    'netRxKbytes',
+    'netTxKbytes',
+    'usageTotalUsd',
+];
+
+const BYTES_IN_KB = 1024;
+const BYTES_IN_MB = 1024 * 1024;
+
+// Convert a raw Apify run into normalized, human-readable performance stats.
+function toRunPerfStats(run: { stats?: unknown; usageTotalUsd?: number }): RunPerfStats {
+    const stats = (run.stats ?? {}) as Record<string, number | undefined>;
+    const toMb = (b?: number) => (typeof b === 'number' ? b / BYTES_IN_MB : undefined);
+    const toKb = (b?: number) => (typeof b === 'number' ? b / BYTES_IN_KB : undefined);
+    return {
+        runTimeSecs: stats.runTimeSecs,
+        computeUnits: stats.computeUnits,
+        memAvgMbytes: toMb(stats.memAvgBytes),
+        memMaxMbytes: toMb(stats.memMaxBytes),
+        cpuAvgUsage: stats.cpuAvgUsage,
+        cpuMaxUsage: stats.cpuMaxUsage,
+        netRxKbytes: toKb(stats.netRxBytes),
+        netTxKbytes: toKb(stats.netTxBytes),
+        usageTotalUsd: run.usageTotalUsd,
+    };
+}
 
 await Actor.init();
 
@@ -73,26 +109,25 @@ for (const memoryMbs of memoryConfigs) {
     const runs = refetchedRuns.filter((run): run is NonNullable<typeof run> => !!run);
     log.info(`Batch of Actors with ${memoryMbs} MB memory finished.`);
 
-    // Push important run data to a separate dataset
+    // Push important run data to a separate dataset (with normalized, readable stats)
     const runsWithOnlyImportantData = runs.map((run) => ({
         id: run.id,
         status: run.status,
         memoryMbs: run.options.memoryMbytes,
         buildNumber: run.options.build,
-        stats: run.stats,
+        stats: toRunPerfStats(run),
         chargedEventCounts: run.chargedEventCounts,
         usageTotalUsd: run.usageTotalUsd,
     }));
 
     await allRunsDataset.pushData(runsWithOnlyImportantData);
 
-    // Aggregate resource-usage stats (min/max/mean/median) across the batch for this memory config
-    const runStatsData = [...RUN_STATS_FIELDS, 'usageTotalUsd'].flatMap((statName) => {
-        const values = runs
-            .map((run) => (statName === 'usageTotalUsd'
-                ? run.usageTotalUsd
-                : (run.stats as unknown as Record<string, number | undefined>)?.[statName]))
-            .filter((v): v is number => typeof v === 'number');
+    // Aggregate normalized resource-usage stats (min/max/mean/median) across the batch
+    const perfStats = runs.map(toRunPerfStats);
+    const runStatsData = RUN_STATS_FIELDS.flatMap((statName) => {
+        const values = perfStats
+            .map((s) => s[statName])
+            .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
 
         if (values.length === 0) return [];
 

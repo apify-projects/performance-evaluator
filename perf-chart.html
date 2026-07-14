@@ -97,33 +97,26 @@ const COLORS = [
 
 // Metadata describing how to label and format each aggregated run stat.
 // Order here drives the order of run-stats charts and outlier columns.
+// Memory is normalized to MB and network traffic to kB by the Actor before storage.
 const STAT_META = {
-  runTimeSecs:  { label: 'Run time',      unit: 's',   fmt: 'number' },
+  runTimeSecs:  { label: 'Run time',      unit: 's',   fmt: 'secs' },
   computeUnits: { label: 'Compute units', unit: 'CU',  fmt: 'number' },
-  memAvgBytes:  { label: 'Avg memory',    unit: 'bytes', fmt: 'bytes' },
-  memMaxBytes:  { label: 'Max memory',    unit: 'bytes', fmt: 'bytes' },
+  memAvgMbytes: { label: 'Avg memory',    unit: 'MB',  fmt: 'mb' },
+  memMaxMbytes: { label: 'Max memory',    unit: 'MB',  fmt: 'mb' },
   cpuAvgUsage:  { label: 'Avg CPU',       unit: '%',   fmt: 'percent' },
   cpuMaxUsage:  { label: 'Max CPU',       unit: '%',   fmt: 'percent' },
-  netRxBytes:   { label: 'Network in',    unit: 'bytes', fmt: 'bytes' },
-  netTxBytes:   { label: 'Network out',   unit: 'bytes', fmt: 'bytes' },
+  netRxKbytes:  { label: 'Network in',    unit: 'kB',  fmt: 'kb' },
+  netTxKbytes:  { label: 'Network out',   unit: 'kB',  fmt: 'kb' },
   usageTotalUsd:{ label: 'Total usage',   unit: 'USD', fmt: 'usd' },
 };
-
-function formatBytes(n) {
-  if (n === null || n === undefined || isNaN(n)) return '-';
-  if (Math.abs(n) < 1024) return `${n.toFixed(0)} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let u = -1;
-  let v = n;
-  do { v /= 1024; u++; } while (Math.abs(v) >= 1024 && u < units.length - 1);
-  return `${v.toFixed(2)} ${units[u]}`;
-}
 
 function formatStatValue(statName, value) {
   if (value === null || value === undefined || isNaN(value)) return '-';
   const meta = STAT_META[statName];
   switch (meta && meta.fmt) {
-    case 'bytes': return formatBytes(value);
+    case 'mb': return `${value.toFixed(1)} MB`;
+    case 'kb': return `${value.toFixed(1)} kB`;
+    case 'secs': return `${value.toFixed(2)} s`;
     case 'percent': return `${value.toFixed(1)}%`;
     case 'usd': return `$${value.toFixed(4)}`;
     default: return value.toFixed(value >= 100 ? 1 : 3);
@@ -358,7 +351,6 @@ function renderRunStatsCharts() {
 }
 
 function getRunStatValue(run, statName) {
-  if (statName === 'usageTotalUsd') return run.usageTotalUsd;
   return run.stats ? run.stats[statName] : undefined;
 }
 
