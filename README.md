@@ -98,3 +98,64 @@ An interactive HTML report is stored in the default key-value store under the ke
   }
 ]
 ```
+
+## How to measure common metrics
+
+### Actor startup times
+
+Actor usually goes through several stages:
+- Actor start (API received the call) -> Node.js process start
+- Node.js process start -> Node modules loaded
+- Node modules loaded -> Actor initialized and input loaded
+- Actor initialized and input loaded -> First Crawler request made
+- ... (business logic happens here)
+- Last Crawler request made -> Actor finished its run (cleanup did run)
+
+### Code to add to your Actor
+
+```ts
+import { performance } from 'node:perf_hooks';
+import { Actor, log } from 'apify';
+
+// Ideally import this from another file
+const getImportPerfTimes = () => {
+    const nodeStartToImportMs = performance.now();
+    // Not available locally
+    let actorStartToNodeStartNegativeMs: number | undefined;
+
+    // We cannot use Actor.getEnv() because that is only available after Actor.init()
+    const startedAt = process.env.ACTOR_STARTED_AT;
+    if (startedAt) {
+        // We do this gymnastics of converting relative date to absolute to relative (to node startup so it is negative)
+        const absoluteDateAfterImport = Date.now();
+        const dateBeforeNodeStart = absoluteDateAfterImport - nodeStartToImportMs;
+        const dateStartedAt = new Date(startedAt).getTime();
+        // We output this as negative because it happens before the baseline (nodeStartToImportMs) and the analyzing Actor can better calculate the diffs
+        actorStartToNodeStartNegativeMs = dateStartedAt - dateBeforeNodeStart;
+    }
+
+    return { nodeStartToImportMs, actorStartToNodeStartNegativeMs };
+};
+
+// Call before Actor.init/Actor.main to get accurate startup measurements
+const { nodeStartToImportMs, actorStartToNodeStartNegativeMs } = getImportPerfTimes();
+
+await Actor.init();
+
+// Only print the metrics if debug logging is explicitly enabled
+const { debugLog } = await Actor.getInputOrThrow();
+
+if (input.debugLog) {
+    log.setLevel(log.LEVELS.DEBUG);
+}
+
+if (actorStartToNodeStartNegativeMs) {
+    log.debug(
+        `PERF[start-to-node-process]: Took ${actorStartToNodeStartNegativeMs} ms from Actor start to Node.js start.`,
+    );
+}
+log.debug(`PERF[after-imports]: Took ${nodeStartToImportMs} ms from Node.js start to import packages.`);
+log.debug(
+    `PERF[after-input]: Took ${performance.now()} ms from Node.js start to process input and initialize Actor.`,
+);
+```
